@@ -1,0 +1,6 @@
+*.bak
+*.tmp
+*.log
+.vs/
+bin/
+obj/
