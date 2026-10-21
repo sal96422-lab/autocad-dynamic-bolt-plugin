@@ -7,9 +7,21 @@
 (if (null *ibolt-imperial-index*) (setq *ibolt-imperial-index* "2"))
 (if (null *ibolt-view*) (setq *ibolt-view* "Side"))
 
+(defun ib:ensure-bolt-layer ()
+  (if (not (tblsearch "LAYER" "2"))
+    (entmake
+      '((0 . "LAYER")
+        (100 . "AcDbSymbolTableRecord")
+        (100 . "AcDbLayerTableRecord")
+        (2 . "2")
+        (70 . 0)
+        (62 . 7)
+        (6 . "Continuous"))))
+  "2")
+
 (defun ib:line (p1 p2)
   (entmake
-    (list '(0 . "LINE") '(100 . "AcDbEntity") '(8 . "0")
+    (list '(0 . "LINE") '(100 . "AcDbEntity") '(8 . "2")
           '(62 . 0) '(6 . "BYBLOCK") '(100 . "AcDbLine")
           (cons 10 p1) (cons 11 p2))))
 
@@ -101,7 +113,7 @@
 
 (defun ib:circle (center radius)
   (entmake
-    (list '(0 . "CIRCLE") '(100 . "AcDbEntity") '(8 . "0")
+    (list '(0 . "CIRCLE") '(100 . "AcDbEntity") '(8 . "2")
           '(62 . 0) '(6 . "BYBLOCK") '(100 . "AcDbCircle")
           (cons 10 center) (cons 40 radius))))
 
@@ -345,7 +357,7 @@
 
   ;; Centerline geometry uses BYBLOCK linetype unless the host drawing overrides it.
   (entmake
-    (list '(0 . "LINE") '(100 . "AcDbEntity") '(8 . "0")
+    (list '(0 . "LINE") '(100 . "AcDbEntity") '(8 . "2")
           '(62 . 0) '(6 . "BYBLOCK") '(100 . "AcDbLine")
           (cons 10 (list (- x0 (* 0.25 d)) 0.0 0.0))
           (cons 11 (list (+ len (* 0.25 d)) 0.0 0.0))))
@@ -365,6 +377,7 @@
       (princ (strcat "\nIBOLT error: " msg)))
     (princ))
   (setvar "CMDECHO" 0)
+  (ib:ensure-bolt-layer)
 
   (setq size-choice (ib:choose-size))
   (if (null size-choice)
@@ -457,7 +470,11 @@
             grip-set (and dynamic-ref
                           (ib:calibrate-dynamic-grip
                             dynamic-ref (trans edge-start 1 0) ang
-                            assembly-length)))))
+                            assembly-length)))
+      (if dynamic-ref
+        (vl-catch-all-apply
+          'vla-put-Layer
+          (list (vlax-ename->vla-object dynamic-ref) "2")))))
   (princ
     (strcat "\nInserted "
             size-label
