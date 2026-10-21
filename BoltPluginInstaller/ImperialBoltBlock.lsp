@@ -41,7 +41,8 @@
 
 (defun ib:num-tag (x / s)
   (setq s (rtos x 2 4))
-  (while (= "0" (substr s (strlen s) 1))
+  (while (and (vl-string-search "." s)
+              (= "0" (substr s (strlen s) 1)))
     (setq s (substr s 1 (1- (strlen s)))))
   (if (= "." (substr s (strlen s) 1))
     (setq s (substr s 1 (1- (strlen s)))))
@@ -114,35 +115,61 @@
           (cons 10 (ib:world-point origin ang x1 y1))
           (cons 11 (ib:world-point origin ang x2 y2)))))
 
-(defun ib:circle (center radius)
+(defun ib:top-circle (center radius)
   (entmake
-    (list '(0 . "CIRCLE") '(100 . "AcDbEntity") '(8 . "2")
+    (list '(0 . "CIRCLE") '(100 . "AcDbEntity") '(8 . "0")
           '(62 . 0) '(6 . "BYBLOCK") '(100 . "AcDbCircle")
           (cons 10 center) (cons 40 radius))))
 
-(defun ib:draw-plan-view (center d af / radius points i)
-  ;; End/top view: hex outline, circumscribed head circle, and bolt shank circle.
-  ;; Across-flats dimension = AF; regular-hex circumradius = AF / sqrt(3).
+(defun ib:make-top-block (name d af / radius points i)
+  ;; Build reusable top-view geometry at the block origin.  The hexagon is one
+  ;; closed polyline; layer 0/BYBLOCK lets the reference inherit layer 2.
   (setq radius (/ af (sqrt 3.0))
         points nil
         i 0)
   (while (< i 6)
     (setq points
       (append points
-        (list
-          (polar center (* i (/ pi 3.0)) radius))))
+        (list (polar '(0.0 0.0 0.0) (* i (/ pi 3.0)) radius))))
     (setq i (1+ i)))
-  (setq i 0)
-  (while (< i 6)
-    (entmake
-      (list '(0 . "LINE") '(100 . "AcDbEntity") '(8 . "2")
-            '(62 . 0) '(6 . "BYBLOCK") '(100 . "AcDbLine")
-            (cons 10 (nth i points))
-            (cons 11 (nth (rem (1+ i) 6) points))))
-    (setq i (1+ i)))
-  (ib:circle center radius)
-  (ib:circle center (/ d 2.0))
-  T)
+  (if
+    (and
+      (entmake
+        (list '(0 . "BLOCK") '(100 . "AcDbEntity") '(8 . "0")
+              '(100 . "AcDbBlockBegin") (cons 2 name) (cons 70 0)
+              (cons 10 '(0.0 0.0 0.0))))
+      (entmake
+        (append
+          (list '(0 . "LWPOLYLINE") '(100 . "AcDbEntity") '(8 . "0")
+                '(62 . 0) '(6 . "BYBLOCK") '(100 . "AcDbPolyline")
+                (cons 90 6) (cons 70 1))
+          (mapcar
+            '(lambda (p) (cons 10 (list (car p) (cadr p))))
+            points)))
+      (ib:top-circle '(0.0 0.0 0.0) radius)
+      (ib:top-circle '(0.0 0.0 0.0) (/ d 2.0))
+      (entmake
+        '((0 . "ENDBLK") (100 . "AcDbEntity") (8 . "0")
+          (100 . "AcDbBlockEnd"))))
+    T
+    nil))
+
+(defun ib:draw-plan-view (center d af / name inserted data)
+  ;; Insert one reusable top-view block for each nominal bolt diameter.
+  (setq name (strcat "IBOLT_TOP_D" (ib:num-tag d)))
+  (if (or (tblsearch "BLOCK" name) (ib:make-top-block name d af))
+    (progn
+      (command-s "_.-INSERT" name "_S" 1.0 "_R" 0.0 center)
+      (setq inserted (entlast))
+      (if (and inserted (= "INSERT" (cdr (assoc 0 (entget inserted)))))
+        (progn
+          (setq data (entget inserted)
+                data (subst (cons 8 "2") (assoc 8 data) data))
+          (entmod data)
+          (entupd inserted)
+          T)
+        nil))
+    nil))
 
 (defun ib:set-dynamic-length (ename required-length / obj props prop pname
                                     value ptype xscale target changed)
