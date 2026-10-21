@@ -99,45 +99,30 @@
   (ib:line (ib:world-point origin ang x1 y1)
            (ib:world-point origin ang x2 y2)))
 
-(defun ib:draw-plan-view (origin ang grip d af / head-thk nut-thk tip chamfer x thread-start pitch)
-  ;; Conventional top view of a horizontal bolt assembly. The picked points
-  ;; remain the underside of the head (x=0) and inside face of the nut (x=grip).
-  (setq head-thk (* 0.65 d)
-        nut-thk (* 0.80 d)
-        tip (+ grip nut-thk (* 0.35 d))
-        chamfer (* 0.12 af))
+(defun ib:circle (center radius)
+  (entmake
+    (list '(0 . "CIRCLE") '(100 . "AcDbEntity") '(8 . "0")
+          '(62 . 0) '(6 . "BYBLOCK") '(100 . "AcDbCircle")
+          (cons 10 center) (cons 40 radius))))
 
-  ;; Shank.
-  (ib:plan-line origin ang 0.0 (/ d 2.0) tip (/ d 2.0))
-  (ib:plan-line origin ang 0.0 (- (/ d 2.0)) tip (- (/ d 2.0)))
-  (ib:plan-line origin ang tip (/ d 2.0) tip (- (/ d 2.0)))
-
-  ;; Bolt head with conventional plan-view chamfers.
-  (ib:plan-line origin ang (- head-thk) (+ (- (/ af 2.0)) chamfer) (- head-thk) (- (/ af 2.0) chamfer))
-  (ib:plan-line origin ang (- head-thk) (- (/ af 2.0) chamfer) (+ (- head-thk) chamfer) (- (/ af 2.0)))
-  (ib:plan-line origin ang (+ (- head-thk) chamfer) (- (/ af 2.0)) 0.0 (- (/ af 2.0)))
-  (ib:plan-line origin ang 0.0 (- (/ af 2.0)) 0.0 (/ af 2.0))
-  (ib:plan-line origin ang 0.0 (/ af 2.0) (+ (- head-thk) chamfer) (/ af 2.0))
-  (ib:plan-line origin ang (+ (- head-thk) chamfer) (/ af 2.0) (- head-thk) (- (/ af 2.0) chamfer))
-
-  ;; Nut, with its inside face exactly at the second picked plate face.
-  (setq x grip)
-  (ib:plan-line origin ang x (+ (- (/ af 2.0)) chamfer) x (- (/ af 2.0) chamfer))
-  (ib:plan-line origin ang x (- (/ af 2.0) chamfer) (+ x chamfer) (- (/ af 2.0)))
-  (ib:plan-line origin ang (+ x chamfer) (- (/ af 2.0)) (- (+ x nut-thk) chamfer) (- (/ af 2.0)))
-  (ib:plan-line origin ang (- (+ x nut-thk) chamfer) (- (/ af 2.0)) (+ x nut-thk) (- (/ af 2.0) chamfer))
-  (ib:plan-line origin ang (+ x nut-thk) (- (/ af 2.0) chamfer) (+ x nut-thk) (- (- (/ af 2.0)) chamfer))
-  (ib:plan-line origin ang (+ x nut-thk) (- (- (/ af 2.0)) chamfer) (- (+ x nut-thk) chamfer) (/ af 2.0))
-  (ib:plan-line origin ang (- (+ x nut-thk) chamfer) (/ af 2.0) (+ x chamfer) (/ af 2.0))
-  (ib:plan-line origin ang (+ x chamfer) (/ af 2.0) x (- (- (/ af 2.0)) chamfer))
-
-  ;; Conventional thread strokes beyond the nut.
-  (setq thread-start (+ grip nut-thk)
-        pitch (max 1.5 (* 0.18 d)))
-  (while (< thread-start tip)
-    (ib:plan-line origin ang thread-start (/ d 2.0)
-      (min tip (+ thread-start (* 0.30 d))) (- (/ d 2.0)))
-    (setq thread-start (+ thread-start pitch)))
+(defun ib:draw-plan-view (center d af / radius points i)
+  ;; End/top view: hex outline, circumscribed head circle, and bolt shank circle.
+  ;; Across-flats dimension = AF; regular-hex circumradius = AF / sqrt(3).
+  (setq radius (/ af (sqrt 3.0))
+        points nil
+        i 0)
+  (while (< i 6)
+    (setq points
+      (append points
+        (list
+          (polar center (* i (/ pi 3.0)) radius))))
+    (setq i (1+ i)))
+  (setq i 0)
+  (while (< i 6)
+    (ib:line (nth i points) (nth (rem (1+ i) 6) points))
+    (setq i (1+ i)))
+  (ib:circle center radius)
+  (ib:circle center (/ d 2.0))
   T)
 
 (defun ib:set-dynamic-length (ename required-length / obj props prop pname
@@ -381,28 +366,6 @@
     (princ))
   (setvar "CMDECHO" 0)
 
-  ;; Pick the two opposite plate faces.  Their separation is the grip distance
-  ;; between the underside of the bolt head and the inside face of the nut.
-  (setq edge-start
-    (getpoint "\nStep 1 of 2 - Pick the plate face under the bolt head: "))
-  (if (null edge-start)
-    (progn
-      (setvar "CMDECHO" oldecho)
-      (princ "\nNo first plate face selected.")
-      (exit)))
-  (setq edge-end
-    (getpoint edge-start
-      "\nStep 2 of 2 - Pick the opposite plate face beside the nut: "))
-  (if (null edge-end)
-    (progn
-      (setvar "CMDECHO" oldecho)
-      (princ "\nNo second plate face selected.")
-      (exit)))
-  (setq ip edge-end
-        ang (angle edge-start edge-end)
-        assembly-length (distance edge-start edge-end)
-        ip edge-start)
-
   (setq size-choice (ib:choose-size))
   (if (null size-choice)
     (progn
@@ -442,8 +405,38 @@
             scale-factor (/ d 19.05))))
 
   (if (= view-mode "Plan")
+    (progn
+      (setq edge-start (getpoint "\nPick the center point for the top view: "))
+      (if (null edge-start)
+        (progn
+          (setvar "CMDECHO" oldecho)
+          (princ "\nNo center point selected.")
+          (exit)))
+      (setq ip edge-start ang 0.0 assembly-length 0.0))
+    (progn
+      ;; Side view: the two opposite plate faces define the grip distance.
+      (setq edge-start
+        (getpoint "\nStep 1 of 2 - Pick the plate face under the bolt head: "))
+      (if (null edge-start)
+        (progn
+          (setvar "CMDECHO" oldecho)
+          (princ "\nNo first plate face selected.")
+          (exit)))
+      (setq edge-end
+        (getpoint edge-start
+          "\nStep 2 of 2 - Pick the opposite plate face beside the nut: "))
+      (if (null edge-end)
+        (progn
+          (setvar "CMDECHO" oldecho)
+          (princ "\nNo second plate face selected.")
+          (exit)))
+      (setq ip edge-start
+            ang (angle edge-start edge-end)
+            assembly-length (distance edge-start edge-end))))
+
+  (if (= view-mode "Plan")
     (setq grip-set
-      (ib:draw-plan-view edge-start ang assembly-length d af))
+      (ib:draw-plan-view edge-start d af))
     (progn
       ;; Side view uses the supplied 3/4-inch dynamic BOLT19 block.
       (setq source (findfile "IBOLT_SOURCE_V2.dwg")
@@ -471,9 +464,11 @@
             (if (= view-mode "Plan") " plan-view bolt at " " side-view dynamic bolt at ")
             (rtos d 2 2)
             unit-label
-            " diameter with "
-            (rtos assembly-length 2 2)
-            " drawing-unit head-to-nut grip distance."
+            " diameter"
+            (if (= view-mode "Plan")
+              "."
+              (strcat " with " (rtos assembly-length 2 2)
+                      " drawing-unit head-to-nut grip distance."))
             (if grip-set ""
               (if (= view-mode "Plan")
                 " Plan view could not be drawn."
