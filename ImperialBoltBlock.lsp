@@ -5,6 +5,7 @@
 (if (null *ibolt-unit*) (setq *ibolt-unit* "Metric"))
 (if (null *ibolt-metric-index*) (setq *ibolt-metric-index* "1"))
 (if (null *ibolt-imperial-index*) (setq *ibolt-imperial-index* "2"))
+(if (null *ibolt-view*) (setq *ibolt-view* "Side"))
 
 (defun ib:line (p1 p2)
   (entmake
@@ -59,6 +60,9 @@
           (end_list)
           (set_tile "metric_size" *ibolt-metric-index*)
           (set_tile "imperial_size" *ibolt-imperial-index*)
+          (if (= *ibolt-view* "Plan")
+            (set_tile "plan_view" "1")
+            (set_tile "side_view" "1"))
           (if (= *ibolt-unit* "Imperial")
             (progn
               (set_tile "imperial" "1")
@@ -76,13 +80,65 @@
             "(setq *ibolt-metric-index* $value)")
           (action_tile "imperial_size"
             "(setq *ibolt-imperial-index* $value)")
+          (action_tile "side_view" "(setq *ibolt-view* \"Side\")")
+          (action_tile "plan_view" "(setq *ibolt-view* \"Plan\")")
           (action_tile "accept" "(done_dialog 1)")
           (action_tile "cancel" "(done_dialog 0)")
           (setq result (start_dialog))
           (unload_dialog dcl)
           (if (= result 1)
-            (list *ibolt-unit* *ibolt-metric-index* *ibolt-imperial-index*)
+            (list *ibolt-unit* *ibolt-metric-index* *ibolt-imperial-index* *ibolt-view*)
             nil))))))
+
+(defun ib:world-point (origin ang x y)
+  (list (+ (car origin) (* x (cos ang)) (* (- y) (sin ang)))
+        (+ (cadr origin) (* x (sin ang)) (* y (cos ang)))
+        (if (caddr origin) (caddr origin) 0.0)))
+
+(defun ib:plan-line (origin ang x1 y1 x2 y2)
+  (ib:line (ib:world-point origin ang x1 y1)
+           (ib:world-point origin ang x2 y2)))
+
+(defun ib:draw-plan-view (origin ang grip d af / head-thk nut-thk tip chamfer x thread-start pitch)
+  ;; Conventional top view of a horizontal bolt assembly. The picked points
+  ;; remain the underside of the head (x=0) and inside face of the nut (x=grip).
+  (setq head-thk (* 0.65 d)
+        nut-thk (* 0.80 d)
+        tip (+ grip nut-thk (* 0.35 d))
+        chamfer (* 0.12 af))
+
+  ;; Shank.
+  (ib:plan-line origin ang 0.0 (/ d 2.0) tip (/ d 2.0))
+  (ib:plan-line origin ang 0.0 (- (/ d 2.0)) tip (- (/ d 2.0)))
+  (ib:plan-line origin ang tip (/ d 2.0) tip (- (/ d 2.0)))
+
+  ;; Bolt head with conventional plan-view chamfers.
+  (ib:plan-line origin ang (- head-thk) (+ (- (/ af 2.0)) chamfer) (- head-thk) (- (/ af 2.0) chamfer))
+  (ib:plan-line origin ang (- head-thk) (- (/ af 2.0) chamfer) (+ (- head-thk) chamfer) (- (/ af 2.0)))
+  (ib:plan-line origin ang (+ (- head-thk) chamfer) (- (/ af 2.0)) 0.0 (- (/ af 2.0)))
+  (ib:plan-line origin ang 0.0 (- (/ af 2.0)) 0.0 (/ af 2.0))
+  (ib:plan-line origin ang 0.0 (/ af 2.0) (+ (- head-thk) chamfer) (/ af 2.0))
+  (ib:plan-line origin ang (+ (- head-thk) chamfer) (/ af 2.0) (- head-thk) (- (/ af 2.0) chamfer))
+
+  ;; Nut, with its inside face exactly at the second picked plate face.
+  (setq x grip)
+  (ib:plan-line origin ang x (+ (- (/ af 2.0)) chamfer) x (- (/ af 2.0) chamfer))
+  (ib:plan-line origin ang x (- (/ af 2.0) chamfer) (+ x chamfer) (- (/ af 2.0)))
+  (ib:plan-line origin ang (+ x chamfer) (- (/ af 2.0)) (- (+ x nut-thk) chamfer) (- (/ af 2.0)))
+  (ib:plan-line origin ang (- (+ x nut-thk) chamfer) (- (/ af 2.0)) (+ x nut-thk) (- (/ af 2.0) chamfer))
+  (ib:plan-line origin ang (+ x nut-thk) (- (/ af 2.0) chamfer) (+ x nut-thk) (- (- (/ af 2.0)) chamfer))
+  (ib:plan-line origin ang (+ x nut-thk) (- (- (/ af 2.0)) chamfer) (- (+ x nut-thk) chamfer) (/ af 2.0))
+  (ib:plan-line origin ang (- (+ x nut-thk) chamfer) (/ af 2.0) (+ x chamfer) (/ af 2.0))
+  (ib:plan-line origin ang (+ x chamfer) (/ af 2.0) x (- (- (/ af 2.0)) chamfer))
+
+  ;; Conventional thread strokes beyond the nut.
+  (setq thread-start (+ grip nut-thk)
+        pitch (max 1.5 (* 0.18 d)))
+  (while (< thread-start tip)
+    (ib:plan-line origin ang thread-start (/ d 2.0)
+      (min tip (+ thread-start (* 0.30 d))) (- (/ d 2.0)))
+    (setq thread-start (+ thread-start pitch)))
+  T)
 
 (defun ib:set-dynamic-length (ename required-length / obj props prop pname
                                     value ptype xscale target changed)
@@ -316,7 +372,7 @@
                   unit-mode scale-factor unit-label size-label metric-size
                   imperial-size imperial-row imperial-map source insert-name
                   inserted dynamic-ref grip-set size-choice size-index
-                  metric-values imperial-values)
+                  metric-values imperial-values view-mode af)
   (setq oldecho (getvar "CMDECHO"))
   (defun *error* (msg)
     (setvar "CMDECHO" oldecho)
@@ -354,20 +410,24 @@
       (princ "\nBolt placement cancelled.")
       (exit)))
   (setq unit-mode (car size-choice)
+        view-mode (cadddr size-choice)
         metric-values
-          '(("M16" 16.00) ("M20" 20.00) ("M22" 22.00)
-            ("M24" 24.00) ("M27" 27.00) ("M30" 30.00)
-            ("M36" 36.00))
+          '(("M16" 16.00 24.00) ("M20" 20.00 30.00)
+            ("M22" 22.00 34.00) ("M24" 24.00 36.00)
+            ("M27" 27.00 41.00) ("M30" 30.00 46.00)
+            ("M36" 36.00 55.00))
         imperial-values
-          '(("1/2" 12.70) ("5/8" 15.88) ("3/4" 19.05)
-            ("7/8" 22.23) ("1" 25.40) ("1-1/8" 28.58)
-            ("1-1/4" 31.75) ("1-1/2" 38.10)))
+          '(("1/2" 12.70 19.05) ("5/8" 15.88 23.81)
+            ("3/4" 19.05 28.58) ("7/8" 22.23 33.34)
+            ("1" 25.40 38.10) ("1-1/8" 28.58 42.86)
+            ("1-1/4" 31.75 47.63) ("1-1/2" 38.10 57.15)))
   (if (= unit-mode "Imperial")
     (progn
       (setq size-index (atoi (caddr size-choice))
             imperial-row (nth size-index imperial-values)
             imperial-size (car imperial-row)
             d (cadr imperial-row)
+             af (caddr imperial-row)
             scale-factor (/ d 19.05)
             unit-label " mm nominal"
             size-label (strcat imperial-size "\"")))
@@ -376,43 +436,48 @@
             imperial-row (nth size-index metric-values)
             metric-size (car imperial-row)
             d (cadr imperial-row)
+             af (caddr imperial-row)
             size-label metric-size
             unit-label " mm nominal"
             scale-factor (/ d 19.05))))
 
-  ;; The supplied DWG contains a 3/4-inch (19.05 mm) nominal BOLT19 block.
-  ;; Insert the DWG as an outer block, scale it by requested diameter, then
-  ;; explode only that wrapper so the original dynamic BOLT19 reference remains.
-  (setq source (findfile "IBOLT_SOURCE_V2.dwg")
-        insert-name "IBOLT_SOURCE_V2")
-  (if (null source)
+  (if (= view-mode "Plan")
+    (setq grip-set
+      (ib:draw-plan-view edge-start ang assembly-length d af))
     (progn
-      (setvar "CMDECHO" oldecho)
-      (princ "\nIBOLT_SOURCE_V2.dwg was not found in the AutoCAD support path.")
-      (exit)))
-  (if (tblsearch "BLOCK" insert-name)
-    (command-s "_.-INSERT" insert-name "_S" scale-factor
-               "_R" (* 180.0 (/ ang pi)) ip)
-    (command-s "_.-INSERT" source "_S" scale-factor
-               "_R" (* 180.0 (/ ang pi)) ip))
-  (setq inserted (entlast))
-  (if inserted
-    (command-s "_.EXPLODE" inserted ""))
-  (setq dynamic-ref (entlast)
-        grip-set (and dynamic-ref
-                      (ib:calibrate-dynamic-grip
-                        dynamic-ref (trans edge-start 1 0) ang
-                        assembly-length)))
+      ;; Side view uses the supplied 3/4-inch dynamic BOLT19 block.
+      (setq source (findfile "IBOLT_SOURCE_V2.dwg")
+            insert-name "IBOLT_SOURCE_V2")
+      (if (null source)
+        (progn
+          (setvar "CMDECHO" oldecho)
+          (princ "\nIBOLT_SOURCE_V2.dwg was not found in the AutoCAD support path.")
+          (exit)))
+      (if (tblsearch "BLOCK" insert-name)
+        (command-s "_.-INSERT" insert-name "_S" scale-factor
+                   "_R" (* 180.0 (/ ang pi)) ip)
+        (command-s "_.-INSERT" source "_S" scale-factor
+                   "_R" (* 180.0 (/ ang pi)) ip))
+      (setq inserted (entlast))
+      (if inserted (command-s "_.EXPLODE" inserted ""))
+      (setq dynamic-ref (entlast)
+            grip-set (and dynamic-ref
+                          (ib:calibrate-dynamic-grip
+                            dynamic-ref (trans edge-start 1 0) ang
+                            assembly-length)))))
   (princ
     (strcat "\nInserted "
             size-label
-            " dynamic bolt at "
+            (if (= view-mode "Plan") " plan-view bolt at " " side-view dynamic bolt at ")
             (rtos d 2 2)
             unit-label
             " diameter with "
             (rtos assembly-length 2 2)
             " drawing-unit head-to-nut grip distance."
-            (if grip-set "" " Dynamic Grip property could not be set.")))
+            (if grip-set ""
+              (if (= view-mode "Plan")
+                " Plan view could not be drawn."
+                " Dynamic Grip property could not be set."))))
   (setvar "CMDECHO" oldecho)
   (princ))
 

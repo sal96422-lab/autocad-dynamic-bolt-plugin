@@ -7,6 +7,7 @@ A one-click AutoCAD plugin for placing side-view dynamic bolt-and-nut assemblies
 - Preserves the supplied `BOLT19` dynamic block and its grips.
 - Uses two picked plate faces to set the head-to-nut grip distance.
 - Provides a user-friendly Metric/Imperial size dialog.
+- Offers Side View or Plan View (Top) placement.
 - Supports the approved nominal bolt sizes shown below.
 - Adds a Bolt button to the existing WELDSYM toolbar when that toolbar is installed.
 - Loads automatically for each AutoCAD drawing.
@@ -34,7 +35,8 @@ Windows may display an unsigned-application warning because the installer is loc
 2. Pick the opposite plate face beside the nut.
 3. Choose Metric or Imperial.
 4. Select the nominal bolt size.
-5. Click OK to place the dynamic assembly.
+5. Choose Side View or Plan View (Top).
+6. Click OK to place the assembly.
 
 ## AutoCAD compatibility
 

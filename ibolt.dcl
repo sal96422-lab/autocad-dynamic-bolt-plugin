@@ -31,6 +31,19 @@ ibolt_size : dialog {
       width = 30;
     }
   }
+  : boxed_column {
+    label = "Drawing view";
+    : radio_row {
+      : radio_button {
+        key = "side_view";
+        label = "Side View";
+      }
+      : radio_button {
+        key = "plan_view";
+        label = "Plan View (Top)";
+      }
+    }
+  }
   spacer;
   : text {
     label = "The selected plate-face spacing controls the head-to-nut grip.";
