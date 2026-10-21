@@ -21,7 +21,7 @@
 
 (defun ib:line (p1 p2)
   (entmake
-    (list '(0 . "LINE") '(100 . "AcDbEntity") '(8 . "2")
+    (list '(0 . "LINE") '(100 . "AcDbEntity") '(8 . "0")
           '(62 . 0) '(6 . "BYBLOCK") '(100 . "AcDbLine")
           (cons 10 p1) (cons 11 p2))))
 
@@ -108,8 +108,11 @@
         (if (caddr origin) (caddr origin) 0.0)))
 
 (defun ib:plan-line (origin ang x1 y1 x2 y2)
-  (ib:line (ib:world-point origin ang x1 y1)
-           (ib:world-point origin ang x2 y2)))
+  (entmake
+    (list '(0 . "LINE") '(100 . "AcDbEntity") '(8 . "2")
+          '(62 . 0) '(6 . "BYBLOCK") '(100 . "AcDbLine")
+          (cons 10 (ib:world-point origin ang x1 y1))
+          (cons 11 (ib:world-point origin ang x2 y2)))))
 
 (defun ib:circle (center radius)
   (entmake
@@ -131,7 +134,11 @@
     (setq i (1+ i)))
   (setq i 0)
   (while (< i 6)
-    (ib:line (nth i points) (nth (rem (1+ i) 6) points))
+    (entmake
+      (list '(0 . "LINE") '(100 . "AcDbEntity") '(8 . "2")
+            '(62 . 0) '(6 . "BYBLOCK") '(100 . "AcDbLine")
+            (cons 10 (nth i points))
+            (cons 11 (nth (rem (1+ i) 6) points))))
     (setq i (1+ i)))
   (ib:circle center radius)
   (ib:circle center (/ d 2.0))
@@ -357,7 +364,7 @@
 
   ;; Centerline geometry uses BYBLOCK linetype unless the host drawing overrides it.
   (entmake
-    (list '(0 . "LINE") '(100 . "AcDbEntity") '(8 . "2")
+    (list '(0 . "LINE") '(100 . "AcDbEntity") '(8 . "0")
           '(62 . 0) '(6 . "BYBLOCK") '(100 . "AcDbLine")
           (cons 10 (list (- x0 (* 0.25 d)) 0.0 0.0))
           (cons 11 (list (+ len (* 0.25 d)) 0.0 0.0))))
@@ -377,7 +384,6 @@
       (princ (strcat "\nIBOLT error: " msg)))
     (princ))
   (setvar "CMDECHO" 0)
-  (ib:ensure-bolt-layer)
 
   (setq size-choice (ib:choose-size))
   (if (null size-choice)
@@ -448,8 +454,10 @@
             assembly-length (distance edge-start edge-end))))
 
   (if (= view-mode "Plan")
-    (setq grip-set
-      (ib:draw-plan-view edge-start d af))
+    (progn
+      (ib:ensure-bolt-layer)
+      (setq grip-set
+        (ib:draw-plan-view edge-start d af)))
     (progn
       ;; Side view uses the supplied 3/4-inch dynamic BOLT19 block.
       (setq source (findfile "IBOLT_SOURCE_V2.dwg")
@@ -470,11 +478,7 @@
             grip-set (and dynamic-ref
                           (ib:calibrate-dynamic-grip
                             dynamic-ref (trans edge-start 1 0) ang
-                            assembly-length)))
-      (if dynamic-ref
-        (vl-catch-all-apply
-          'vla-put-Layer
-          (list (vlax-ename->vla-object dynamic-ref) "2")))))
+                            assembly-length)))))
   (princ
     (strcat "\nInserted "
             size-label

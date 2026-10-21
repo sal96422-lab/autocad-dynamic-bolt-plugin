@@ -12,7 +12,8 @@ A one-click AutoCAD plugin for placing side-view dynamic bolt-and-nut assemblies
 - Supports the approved nominal bolt sizes shown below.
 - Adds a Bolt button to the existing WELDSYM toolbar when that toolbar is installed.
 - Loads automatically for each AutoCAD drawing.
-- Places all bolt geometry on layer `2`, creating the layer when necessary.
+- Places generated top-view geometry on layer `2`, creating the layer when
+  necessary. The supplied side-view block retains its original layer settings.
 
 ### Metric sizes
 
